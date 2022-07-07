@@ -1,0 +1,85 @@
+----------------------------------------------------------------------------------------------------------------------------
+Load Data to HDFS
+----------------------------------------------------------------------------------------------------------------------------
+1. Copy data to VM in document folder
+
+	In the VM
+    - Navigate to Devices - Shared Folder - Shared Folder Settings
+        - Change the location to C:\Users\MS\Desktop\sharedfolder
+    - Launch a Terminal and run the following command
+        $ sh Downloads/mountsf
+    - Use the files explorer and Navigate to Downloads to find the sharedfolder
+	- Copy TCS.csv to documents/stock in VM
+
+2. Start Hadoop daemons
+	- $ cd /usr/local/hadoop-2.9.1/sbin/
+	$ ./start-all.sh
+	
+
+3. Load Data HDFS
+	- Load data in Hadoop
+		hadoop fs -put /home/hduser/Documents/Stock/ hdfs://localhost:54310/user/hduser/
+		hadoop fs -ls hdfs://localhost:54310/user/hduser/Stock/
+
+
+----------------------------------------------------------------------------------------------------------------------------
+Copy TCS.csv data using Hive tables
+----------------------------------------------------------------------------------------------------------------------------
+
+$ hive
+
+hive> SHOW DATABASES ;
+
+hive> CREATE DATABASE stock ;
+
+hive> SHOW DATABASES ;
+
+hive> USE stock ;
+
+hive> SHOW TABLES ;
+
+# Create stock_prices_tbl1 table
+
+hive> CREATE EXTERNAL TABLE stock_prices_tbl1 (DDate date,Symbol STRING,Series STRING, PrevClose double,Open double,High double,Low double,Last double,Close double,VWAP double,Volume double,Turnover double,Trades double,Deliverable_Volume double,Deliverble double) ROW FORMAT DELIMITED FIELDS TERMINATED BY ',' LINES TERMINATED BY '\n' STORED AS TEXTFILE LOCATION 'hdfs://localhost:54310/user/hduser/Stock/' ;
+
+hive>ALTER TABLE stock_prices_tbl1 SET TBLPROPERTIES ("skip.header.line.count"="1");
+
+hive> select * from stock_prices_tbl1;
+
+hive> DESCRIBE stock_prices_tbl1 ;
+
+----------------------------------------------------------------------------------------------------------------------------
+Copy TCS_incremental.csv data using Hive tables
+----------------------------------------------------------------------------------------------------------------------------
+Copy TCS.csv to documents/incremental in VM
+
+hadoop fs -put /home/hduser/Documents/Increment hdfs://localhost:54310/user/hduser/
+
+hive> USE stock ;
+
+hive>DROP TABLE IF EXISTS stock_tmp3;
+
+# Create stock_tmp3 table
+
+hive> CREATE EXTERNAL TABLE stock_tmp3 (DDate STRING,Symbol STRING,Series STRING, PrevClose double,Open double,High double,Low double,Last double,Close double,VWAP double,Volume double,Turnover double,Trades double,Deliverable_Volume double,Deliverble double) ROW FORMAT DELIMITED FIELDS TERMINATED BY ',' LINES TERMINATED BY '\n' STORED AS TEXTFILE LOCATION 'hdfs://localhost:54310/user/hduser/Increment' ;
+
+hive> ALTER TABLE stock_tmp3 SET TBLPROPERTIES ("skip.header.line.count"="1");
+
+hive> select * from stock_tmp3;
+
+=============Convert date format to actual format.
+
+hive> CREATE EXTERNAL TABLE stock_tmp5 (DDate date,Symbol STRING,Series STRING, PrevClose double,Open double,High double,Low double,Last double,Close double,VWAP double,Volume double,Turnover double,Trades double,Deliverable_Volume double,Deliverble double);
+
+hive> insert into table stock_tmp5 select from_unixtime(unix_timestamp(DDate,'dd-MM-yyyy'),'yyyy-MM-dd'),Symbol,Series, PrevClose,Open,High,Low,Last,Close,VWAP,Volume,Turnover,Trades,Deliverable_Volume,Deliverble from stock_tmp3;
+
+hive> select * from stock_tmp5;
+
+=============Merge data into main table from tmp table
+
+hive> INSERT INTO stock_prices_tbl1
+SELECT B.DDate,B.Symbol,B.Series,B.PrevClose,B.Open,B.High,B.Low,B.Last,B.Close,B.VWAP,B.Volume,B.Turnover,B.Trades,B.Deliverable_Volume,B.Deliverble
+FROM   stock_tmp5 AS B 
+       LEFT OUTER JOIN stock_prices_tbl1 AS A 
+                    ON A.DDate = B.DDate 
+WHERE  A.DDate IS NULL;
